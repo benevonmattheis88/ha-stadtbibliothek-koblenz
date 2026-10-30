@@ -34,6 +34,15 @@
       },
       "naechste_rueckgabe": {
         "name": "Nächste Rückgabe"
+      },
+      "gebuehren": {
+        "name": "Gebühren"
+      },
+      "vormerkungen": {
+        "name": "Vormerkungen"
+      },
+      "ausweis_gueltig_bis": {
+        "name": "Ausweis gültig bis"
       }
     },
     "button": {

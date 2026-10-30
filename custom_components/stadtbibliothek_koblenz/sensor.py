@@ -17,7 +17,15 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     coordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([LoansSensor(coordinator, entry), NextDueSensor(coordinator, entry)])
+    async_add_entities(
+        [
+            LoansSensor(coordinator, entry),
+            NextDueSensor(coordinator, entry),
+            FeesSensor(coordinator, entry),
+            ReservationsSensor(coordinator, entry),
+            CardValidSensor(coordinator, entry),
+        ]
+    )
 
 
 class _Base(CoordinatorEntity, SensorEntity):
@@ -35,8 +43,12 @@ class _Base(CoordinatorEntity, SensorEntity):
         )
 
     @property
+    def _data(self) -> dict:
+        return self.coordinator.data or {}
+
+    @property
     def _loans(self) -> list[dict]:
-        return self.coordinator.data or []
+        return self._data.get("loans") or []
 
 
 class LoansSensor(_Base):
@@ -87,3 +99,60 @@ class NextDueSensor(_Base):
             "titles": [l["title"] for l in self._loans if l.get("due_date") == nxt.isoformat()],
             "days_left": (nxt - date.today()).days,
         }
+
+
+class FeesSensor(_Base):
+    _attr_icon = "mdi:cash"
+    _attr_device_class = SensorDeviceClass.MONETARY
+    _attr_native_unit_of_measurement = "EUR"
+
+    def __init__(self, coordinator, entry):
+        super().__init__(coordinator, entry, "gebuehren")
+
+    @property
+    def native_value(self) -> float | None:
+        return self._data.get("fees")
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        # Kontoübersicht, um das Auslesen prüfen zu können
+        return {"kontouebersicht": self._data.get("summary") or {}}
+
+
+class ReservationsSensor(_Base):
+    _attr_icon = "mdi:book-clock"
+    _attr_native_unit_of_measurement = "Medien"
+
+    def __init__(self, coordinator, entry):
+        super().__init__(coordinator, entry, "vormerkungen")
+
+    @property
+    def native_value(self) -> int:
+        return len(self._data.get("reservations") or [])
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        res = self._data.get("reservations") or []
+        return {
+            "reservations": res,
+            "ready_count": sum(1 for r in res if r.get("ready")),
+            "ready_titles": [r["title"] for r in res if r.get("ready")],
+        }
+
+
+class CardValidSensor(_Base):
+    _attr_icon = "mdi:card-account-details"
+    _attr_device_class = SensorDeviceClass.DATE
+
+    def __init__(self, coordinator, entry):
+        super().__init__(coordinator, entry, "ausweis_gueltig_bis")
+
+    @property
+    def native_value(self) -> date | None:
+        v = self._data.get("card_valid_until")
+        return date.fromisoformat(v) if v else None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        v = self.native_value
+        return {"days_left": (v - date.today()).days if v else None}

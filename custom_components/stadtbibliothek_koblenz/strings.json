@@ -34,6 +34,15 @@
       },
       "naechste_rueckgabe": {
         "name": "Next due date"
+      },
+      "gebuehren": {
+        "name": "Fees"
+      },
+      "vormerkungen": {
+        "name": "Reservations"
+      },
+      "ausweis_gueltig_bis": {
+        "name": "Card valid until"
       }
     },
     "button": {

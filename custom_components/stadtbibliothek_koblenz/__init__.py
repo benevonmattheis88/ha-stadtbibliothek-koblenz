@@ -19,7 +19,7 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS = [Platform.SENSOR, Platform.BUTTON]
 
 
-class LoansCoordinator(DataUpdateCoordinator[list[dict]]):
+class LoansCoordinator(DataUpdateCoordinator[dict]):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(hass, _LOGGER, name=DOMAIN, update_interval=UPDATE_INTERVAL)
         self.client = ZonesClient(
@@ -40,7 +40,7 @@ class LoansCoordinator(DataUpdateCoordinator[list[dict]]):
         self.hass.bus.async_fire(f"{DOMAIN}_verlaengert", {"results": results})
         return results
 
-    async def _async_update_data(self) -> list[dict]:
+    async def _async_update_data(self) -> dict:
         try:
             return await self.client.fetch_loans()
         except LoginFailed as err:

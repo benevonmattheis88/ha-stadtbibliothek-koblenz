@@ -93,6 +93,81 @@ def _find_lent_link(soup) -> str | None:
     return None
 
 
+
+AMOUNT_RE = re.compile(r"(-?\d+[.,]\d{2})\s*(?:€|EUR)", re.I)
+VALID_RE = re.compile(r"(?:g.ltig|ablauf|l.uft ab|verfall)[^0-9]{0,40}(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})", re.I)
+
+
+def _summary(soup) -> dict[str, str]:
+    """Zeilen der Kontoübersicht als Name -> Wert (für Gebühren, Ausweis, Zähler)."""
+    rows: dict[str, str] = {}
+    for tr in soup.find_all("tr"):
+        cells = [_text(td) for td in tr.find_all(["td", "th"], recursive=False)]
+        cells = [c for c in cells if c]
+        if 2 <= len(cells) <= 3 and len(cells[0]) < 60 and not tr.find("table"):
+            rows.setdefault(cells[0].rstrip(":"), " ".join(cells[1:])[:120])
+    return rows
+
+
+def _fees(soup, rows: dict[str, str]) -> float | None:
+    for k, v in rows.items():
+        if re.search(r"kontostand|geb.hr|saldo|offen", k, re.I):
+            if m := AMOUNT_RE.search(v) or re.search(r"(-?\d+[.,]\d{2})", v):
+                return abs(float(m.group(1).replace(",", ".")))
+    text = _text(soup)
+    i = text.lower().find("kontostand")
+    if i >= 0 and (m := AMOUNT_RE.search(text[i : i + 80])):
+        return abs(float(m.group(1).replace(",", ".")))
+    return None
+
+
+def _card_valid_until(soup, rows: dict[str, str]) -> date | None:
+    for k, v in rows.items():
+        if re.search(r"g.ltig|ablauf|verfall", k, re.I) and (d := _parse_date(v)):
+            return d
+    if m := VALID_RE.search(_text(soup)):
+        return _parse_date(m.group(1))
+    return None
+
+
+def _find_reservations_link(soup) -> str | None:
+    for a in soup.find_all("a", href=True):
+        t = _text(a)
+        if re.search(r"vormerk|reserv", t, re.I) and "BACNO" not in a["href"]:
+            return a["href"]
+    for cell in soup.select(".AccountSummaryCounterNameCell"):
+        if re.search(r"vormerk|reserv", _text(cell), re.I):
+            a = cell.find("a", href=True) or (cell.parent.find("a", href=True) if cell.parent else None)
+            if a:
+                return a["href"]
+    return None
+
+
+def _parse_reservations(soup) -> list[dict]:
+    out: list[dict] = []
+    for table in soup.select(
+        ".MessageBrowseItemDetailsCellStripe table, .MessageBrowseItemDetailsCell table"
+    ):
+        fields: dict[str, str] = {}
+        for tr in table.find_all("tr"):
+            name = tr.select_one("[class*=FieldNameCell]")
+            data = tr.select_one("[class*=FieldDataCell]")
+            if name is not None and data is not None:
+                fields[_text(name).rstrip(":")] = _text(data)
+        title = fields.get("Titel")
+        if not title:
+            continue
+        text = " ".join(fields.values()) + " " + _text(table)
+        out.append(
+            {
+                "title": title,
+                "author": fields.get("Verfasser"),
+                "ready": bool(re.search(r"abhol|liegt bereit|bereitgestellt|eingetroffen", text, re.I)),
+                "details": {k: v for k, v in fields.items() if k and k != "Titel"},
+            }
+        )
+    return out
+
 def _parse_loans(soup, today: date) -> list[tuple[Loan, str | None]]:
     """Medien der Seite, jeweils mit dem Pfad zum Verlängern (falls möglich)."""
     loans: list[Loan] = []
@@ -165,7 +240,7 @@ class ZonesClient:
         self._card = card
         self._pin = pin
 
-    async def fetch_loans(self) -> list[dict]:
+    async def fetch_loans(self) -> dict:
         try:
             async with aiohttp.ClientSession(
                 cookie_jar=aiohttp.CookieJar(), timeout=TIMEOUT, headers=HEADERS
@@ -228,6 +303,7 @@ class ZonesClient:
     async def _loan_items(self, session) -> list[tuple[Loan, str | None]]:
         loop = asyncio.get_running_loop()
         soup, page_url = await self._login(session)
+        self._account = (soup, page_url)
         link = _find_lent_link(soup)
         if link is None:
             # Konto ohne Ausleihen zeigt keinen Link
@@ -249,10 +325,29 @@ class ZonesClient:
             url = urljoin(page_url, nxt)
         return items
 
-    async def _fetch(self, session) -> list[dict]:
+    async def _fetch(self, session) -> dict:
+        loop = asyncio.get_running_loop()
         loans = [loan for loan, _ in await self._loan_items(session)]
         loans.sort(key=lambda l: l.due_date or "9999-12-31")
-        return [asdict(l) for l in loans]
+        soup, page_url = self._account  # Kontoübersicht aus dem Login
+        rows = _summary(soup)
+        valid = _card_valid_until(soup, rows)
+        reservations: list[dict] = []
+        if link := _find_reservations_link(soup):
+            url = urljoin(page_url, link.replace("utf-8?Method", "utf-8&Method"))
+            try:
+                html, _ = await self._get(session, url)
+                rsoup = await loop.run_in_executor(None, BeautifulSoup, html, "html.parser")
+                reservations = _parse_reservations(rsoup)
+            except aiohttp.ClientResponseError:
+                pass
+        return {
+            "loans": [asdict(l) for l in loans],
+            "fees": _fees(soup, rows),
+            "card_valid_until": valid.isoformat() if valid else None,
+            "reservations": reservations,
+            "summary": rows,
+        }
 
     async def renew(self, barcodes: list[str] | None = None) -> list[dict]:
         """Verlängert die genannten Medien (Mediennummer), ohne Angabe alle verlängerbaren."""
