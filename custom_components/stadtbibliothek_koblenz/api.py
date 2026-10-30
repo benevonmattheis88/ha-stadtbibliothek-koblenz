@@ -125,6 +125,11 @@ def _card_valid_until(soup, rows: dict[str, str]) -> date | None:
     for k, v in rows.items():
         if re.search(r"g.ltig|ablauf|verfall", k, re.I) and (d := _parse_date(v)):
             return d
+    # Koblenz: Jahresgebühr "Dauer: 11/08/2026 bis 10/08/2027" = Ausweis gültig bis
+    for k, v in rows.items():
+        if re.fullmatch(r"dauer|laufzeit", k, re.I) and " bis " in v:
+            if d := _parse_date(v.split(" bis ")[-1]):
+                return d
     if m := VALID_RE.search(_text(soup)):
         return _parse_date(m.group(1))
     return None
