@@ -49,6 +49,11 @@
       "alle_verlaengern": {
         "name": "Alle verlängern"
       }
+    },
+    "switch": {
+      "automatisch_verlaengern": {
+        "name": "Automatisch verlängern"
+      }
     }
   },
   "services": {
@@ -63,6 +68,18 @@
         "mediennummer": {
           "name": "Mediennummer",
           "description": "Eine oder mehrere Mediennummern"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Optionen",
+        "description": "Wie oft das Konto gelesen wird und wie viele Tage vor der Rückgabe automatisch verlängert wird (wenn der Schalter an ist).",
+        "data": {
+          "update_interval": "Abruf alle … Stunden",
+          "renew_days_before": "Automatisch verlängern ab … Tagen vor der Rückgabe"
         }
       }
     }

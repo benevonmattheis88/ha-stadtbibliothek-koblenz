@@ -1,16 +1,16 @@
-"""Sensoren: Anzahl Ausleihen (mit Liste) und nächste Rückgabe."""
+"""Sensoren: Ausleihen, nächste Rückgabe, Gebühren, Vormerkungen, Ausweis."""
 from __future__ import annotations
 
+import re
 from datetime import date
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import DOMAIN, PRIVATE_ROWS
+from .entity import _Base
 
 
 async def async_setup_entry(
@@ -28,30 +28,7 @@ async def async_setup_entry(
     )
 
 
-class _Base(CoordinatorEntity, SensorEntity):
-    _attr_has_entity_name = True
-
-    def __init__(self, coordinator, entry: ConfigEntry, key: str) -> None:
-        super().__init__(coordinator)
-        self._attr_unique_id = f"{entry.unique_id}_{key}"
-        self._attr_translation_key = key
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, entry.unique_id)},
-            name="Stadtbibliothek Koblenz",
-            manufacturer="Stadtbibliothek Koblenz",
-            entry_type=DeviceEntryType.SERVICE,
-        )
-
-    @property
-    def _data(self) -> dict:
-        return self.coordinator.data or {}
-
-    @property
-    def _loans(self) -> list[dict]:
-        return self._data.get("loans") or []
-
-
-class LoansSensor(_Base):
+class LoansSensor(_Base, SensorEntity):
     _attr_icon = "mdi:bookshelf"
     _attr_native_unit_of_measurement = "Medien"
 
@@ -78,7 +55,7 @@ class LoansSensor(_Base):
         }
 
 
-class NextDueSensor(_Base):
+class NextDueSensor(_Base, SensorEntity):
     _attr_icon = "mdi:calendar-clock"
     _attr_device_class = SensorDeviceClass.DATE
 
@@ -101,7 +78,7 @@ class NextDueSensor(_Base):
         }
 
 
-class FeesSensor(_Base):
+class FeesSensor(_Base, SensorEntity):
     _attr_icon = "mdi:cash"
     _attr_device_class = SensorDeviceClass.MONETARY
     _attr_native_unit_of_measurement = "EUR"
@@ -116,10 +93,15 @@ class FeesSensor(_Base):
     @property
     def extra_state_attributes(self) -> dict:
         # Kontoübersicht, um das Auslesen prüfen zu können
-        return {"kontouebersicht": self._data.get("summary") or {}}
+        rows = self._data.get("summary") or {}
+        return {
+            "kontouebersicht": {
+                k: v for k, v in rows.items() if not re.search(PRIVATE_ROWS, k, re.I)
+            }
+        }
 
 
-class ReservationsSensor(_Base):
+class ReservationsSensor(_Base, SensorEntity):
     _attr_icon = "mdi:book-clock"
     _attr_native_unit_of_measurement = "Medien"
 
@@ -140,7 +122,7 @@ class ReservationsSensor(_Base):
         }
 
 
-class CardValidSensor(_Base):
+class CardValidSensor(_Base, SensorEntity):
     _attr_icon = "mdi:card-account-details"
     _attr_device_class = SensorDeviceClass.DATE
 

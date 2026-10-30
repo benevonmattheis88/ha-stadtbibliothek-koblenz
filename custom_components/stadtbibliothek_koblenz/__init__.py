@@ -1,52 +1,17 @@
 """Stadtbibliothek Koblenz: Ausleihen und Rückgabedaten aus dem Leserkonto."""
 from __future__ import annotations
 
-import logging
+import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-import voluptuous as vol
-
 from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
 from homeassistant.helpers import config_validation as cv
-from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .api import LibraryError, LoginFailed, ZonesClient
-from .const import CONF_BASE_URL, CONF_CARD, CONF_PIN, DEFAULT_BASE_URL, DOMAIN, UPDATE_INTERVAL
+from .const import DOMAIN
+from .coordinator import LoansCoordinator
 
-_LOGGER = logging.getLogger(__name__)
-PLATFORMS = [Platform.SENSOR, Platform.BUTTON]
-
-
-class LoansCoordinator(DataUpdateCoordinator[dict]):
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
-        super().__init__(hass, _LOGGER, name=DOMAIN, update_interval=UPDATE_INTERVAL)
-        self.client = ZonesClient(
-            entry.data.get(CONF_BASE_URL, DEFAULT_BASE_URL),
-            entry.data[CONF_CARD],
-            entry.data[CONF_PIN],
-        )
-
-    async def async_renew(self, barcodes: list[str] | None = None) -> list[dict]:
-        """Verlängern, danach Konto neu lesen und Ergebnis melden."""
-        try:
-            results = await self.client.renew(barcodes)
-        except LoginFailed as err:
-            raise ConfigEntryAuthFailed(str(err)) from err
-        except LibraryError as err:
-            raise HomeAssistantError(str(err)) from err
-        await self.async_request_refresh()
-        self.hass.bus.async_fire(f"{DOMAIN}_verlaengert", {"results": results})
-        return results
-
-    async def _async_update_data(self) -> dict:
-        try:
-            return await self.client.fetch_loans()
-        except LoginFailed as err:
-            raise ConfigEntryAuthFailed(str(err)) from err
-        except LibraryError as err:
-            raise UpdateFailed(str(err)) from err
+PLATFORMS = [Platform.SENSOR, Platform.BUTTON, Platform.SWITCH]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -54,6 +19,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await coordinator.async_config_entry_first_refresh()
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    entry.async_on_unload(
+        coordinator.async_add_listener(
+            lambda: hass.async_create_task(coordinator.async_auto_renew())
+        )
+    )
+    entry.async_on_unload(entry.add_update_listener(_options_changed))
 
     if not hass.services.has_service(DOMAIN, "aktualisieren"):
         async def _refresh(call: ServiceCall) -> None:
@@ -77,6 +49,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             supports_response=SupportsResponse.OPTIONAL,
         )
     return True
+
+
+async def _options_changed(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

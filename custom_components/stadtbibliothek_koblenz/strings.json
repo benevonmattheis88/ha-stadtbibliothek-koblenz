@@ -49,6 +49,11 @@
       "alle_verlaengern": {
         "name": "Renew all"
       }
+    },
+    "switch": {
+      "automatisch_verlaengern": {
+        "name": "Renew automatically"
+      }
     }
   },
   "services": {
@@ -63,6 +68,18 @@
         "mediennummer": {
           "name": "Item number",
           "description": "One or more item numbers"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Options",
+        "description": "How often the account is read, and how many days before the due date loans are renewed automatically (when the switch is on).",
+        "data": {
+          "update_interval": "Refresh interval (hours)",
+          "renew_days_before": "Renew automatically this many days before due date"
         }
       }
     }

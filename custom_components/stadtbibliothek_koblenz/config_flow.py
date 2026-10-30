@@ -6,14 +6,30 @@ from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
+from homeassistant.core import callback
 
 from .api import LibraryError, LoginFailed, ZonesClient
-from .const import CONF_BASE_URL, CONF_CARD, CONF_PIN, DEFAULT_BASE_URL, DOMAIN
+from .const import (
+    CONF_BASE_URL,
+    CONF_CARD,
+    CONF_INTERVAL,
+    CONF_PIN,
+    CONF_RENEW_DAYS,
+    DEFAULT_BASE_URL,
+    DEFAULT_INTERVAL,
+    DEFAULT_RENEW_DAYS,
+    DOMAIN,
+)
 
 
 class KoblenzLibraryFlow(ConfigFlow, domain=DOMAIN):
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
+        return KoblenzLibraryOptions()
 
     async def _check(self, data: dict[str, Any]) -> str | None:
         try:
@@ -62,3 +78,23 @@ class KoblenzLibraryFlow(ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema({vol.Required(CONF_PIN): str}),
             errors=errors,
         )
+
+
+class KoblenzLibraryOptions(OptionsFlow):
+    """Abrufintervall und Vorlauf fürs automatische Verlängern."""
+
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        if user_input is not None:
+            return self.async_create_entry(data=user_input)
+        opts = self.config_entry.options
+        schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_INTERVAL, default=opts.get(CONF_INTERVAL, DEFAULT_INTERVAL)
+                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=24)),
+                vol.Required(
+                    CONF_RENEW_DAYS, default=opts.get(CONF_RENEW_DAYS, DEFAULT_RENEW_DAYS)
+                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=7)),
+            }
+        )
+        return self.async_show_form(step_id="init", data_schema=schema)

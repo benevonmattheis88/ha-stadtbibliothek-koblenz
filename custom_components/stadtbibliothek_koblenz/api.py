@@ -157,8 +157,13 @@ def _parse_reservations(soup) -> list[dict]:
         for tr in table.find_all("tr"):
             name = tr.select_one("[class*=FieldNameCell]")
             data = tr.select_one("[class*=FieldDataCell]")
-            if name is not None and data is not None:
-                fields[_text(name).rstrip(":")] = _text(data)
+            if name is None or data is None:
+                # Ohne Zellklassen: erste Zelle = Feldname, zweite = Wert
+                cells = tr.find_all("td", recursive=False)
+                if len(cells) < 2:
+                    continue
+                name, data = cells[0], cells[1]
+            fields[_text(name).rstrip(":")] = _text(data)
         title = fields.get("Titel")
         if not title:
             continue
