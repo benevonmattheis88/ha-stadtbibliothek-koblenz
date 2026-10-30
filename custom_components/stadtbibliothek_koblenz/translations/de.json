@@ -1,0 +1,46 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Stadtbibliothek Koblenz",
+        "description": "Ausweisnummer und PIN deines Leserkontos eingeben.",
+        "data": {
+          "card_number": "Ausweisnummer",
+          "pin": "PIN / Passwort",
+          "base_url": "Katalog-Adresse"
+        }
+      },
+      "reauth_confirm": {
+        "title": "PIN erneuern",
+        "description": "Die Anmeldung klappt nicht mehr. Bitte die aktuelle PIN eingeben.",
+        "data": {
+          "pin": "PIN / Passwort"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Ausweisnummer oder PIN falsch.",
+      "cannot_connect": "Katalog nicht erreichbar oder anders aufgebaut als erwartet."
+    },
+    "abort": {
+      "already_configured": "Dieses Konto ist schon eingerichtet.",
+      "reauth_successful": "PIN aktualisiert."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "ausleihen": {
+        "name": "Ausleihen"
+      },
+      "naechste_rueckgabe": {
+        "name": "Nächste Rückgabe"
+      }
+    }
+  },
+  "services": {
+    "aktualisieren": {
+      "name": "Aktualisieren",
+      "description": "Konto sofort neu abrufen."
+    }
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Stadtbibliothek Koblenz",
+        "description": "Enter library card number and PIN.",
+        "data": {
+          "card_number": "Card number",
+          "pin": "PIN / password",
+          "base_url": "Catalogue URL"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Update PIN",
+        "description": "Login failed. Please enter the current PIN.",
+        "data": {
+          "pin": "PIN / password"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Wrong card number or PIN.",
+      "cannot_connect": "Catalogue unreachable or unexpected layout."
+    },
+    "abort": {
+      "already_configured": "Account already configured.",
+      "reauth_successful": "PIN updated."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "ausleihen": {
+        "name": "Loans"
+      },
+      "naechste_rueckgabe": {
+        "name": "Next due date"
+      }
+    }
+  },
+  "services": {
+    "aktualisieren": {
+      "name": "Refresh",
+      "description": "Fetch the account now."
+    }
+  }
+}
