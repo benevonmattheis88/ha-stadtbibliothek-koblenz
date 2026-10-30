@@ -118,11 +118,11 @@ def _parse_loans(soup, today: date) -> list[Loan]:
             found = [_parse_date(m.group(0)) for m in DATE_RE.finditer(_text(table))]
             found = [d for d in found if d]
             due = max(found) if found else None
-        # Wie in Zones.java: Verlängern-Knöpfe stehen in der Tabelle des Mediums
-        if table.select_one(".CannotRenewLink"):
-            renewable: bool | None = False
-        elif table.select_one(".button[title*=Zum], a[href*=renewItem]"):
-            renewable = True
+        # Wie in Zones.java: Verlängern-Knöpfe stehen in der Tabelle des Mediums.
+        # Koblenz zeigt auch bei verlängerbaren Medien den Link "Verlängern ?" als
+        # CannotRenewLink, daher wird daraus kein "nicht verlängerbar" abgeleitet.
+        if table.select_one(".button[title*=Zum], a[href*=renewItem]"):
+            renewable: bool | None = True
         else:
             renewable = None
         loans.append(
@@ -134,7 +134,7 @@ def _parse_loans(soup, today: date) -> list[Loan]:
                 renewable=renewable,
                 barcode=fields.get("Mediennummer"),
                 branch=fields.get("ausgeliehen in"),
-                details={k: v for k, v in fields.items() if k != "Titel"},
+                details={k: v for k, v in fields.items() if k and k != "Titel"},
             )
         )
     return loans
