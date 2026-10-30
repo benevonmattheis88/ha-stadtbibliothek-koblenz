@@ -19,8 +19,10 @@ from bs4 import BeautifulSoup
 MYZONE_QUERY = "APS_ZONES?fn=MyZone&Style=Portal3&SubStyle=&Lang=GER&ResponseEncoding=utf-8"
 TIMEOUT = aiohttp.ClientTimeout(total=45)
 HEADERS = {"User-Agent": "HomeAssistant-Stadtbibliothek-Koblenz/0.1"}
-DUE_LABEL = re.compile(r"F.+lligkeits.*datum", re.I)
-DATE_RE = re.compile(r"(\d{1,2})[./](\d{1,2})[./](\d{4})")
+DUE_LABEL = re.compile(r"f.lligkeit|f.llig|leihfrist|frist|r.ckgabe", re.I)
+# Felder mit Datum, die nicht das Rückgabedatum sind
+NOT_DUE_LABEL = re.compile(r"ausgeliehen|entliehen|ausleih|seit|vorgemerkt", re.I)
+DATE_RE = re.compile(r"(\d{1,2})[./-](\d{1,2})[./-](\d{4}|\d{2})\b")
 MAX_PAGES = 10
 
 
@@ -41,6 +43,7 @@ class Loan:
     renewable: bool | None
     barcode: str | None
     branch: str | None
+    details: dict[str, str]
 
 
 def _parse_date(text: str) -> date | None:
@@ -48,6 +51,8 @@ def _parse_date(text: str) -> date | None:
     if not m:
         return None
     day, month, year = (int(x) for x in m.groups())
+    if year < 100:
+        year += 2000
     try:
         return date(year, month, day)
     except ValueError:
@@ -99,13 +104,24 @@ def _parse_loans(soup, today: date) -> list[Loan]:
         title = fields.get("Titel")
         if not title:
             continue
-        due_raw = next((v for k, v in fields.items() if DUE_LABEL.search(k)), "")
-        due = _parse_date(due_raw.split(" ")[0]) or _parse_date(due_raw)
-        # Verlängern-Knöpfe stehen je nach Version in der Tabelle oder daneben
-        box = table.parent if table.parent is not None else table
-        if box.select_one(".CannotRenewLink"):
+        due = None
+        for k, v in fields.items():
+            if DUE_LABEL.search(k) and (due := _parse_date(v)):
+                break
+        if due is None:
+            # Kein passendes Feld gefunden: erstes Datum, das kein Ausleihdatum ist
+            for k, v in fields.items():
+                if not NOT_DUE_LABEL.search(k) and (due := _parse_date(v)):
+                    break
+        if due is None:
+            # Datum steht außerhalb der Feldzeilen: spätestes Datum im Block nehmen
+            found = [_parse_date(m.group(0)) for m in DATE_RE.finditer(_text(table))]
+            found = [d for d in found if d]
+            due = max(found) if found else None
+        # Wie in Zones.java: Verlängern-Knöpfe stehen in der Tabelle des Mediums
+        if table.select_one(".CannotRenewLink"):
             renewable: bool | None = False
-        elif box.select_one(".button[title*=Zum], a[href*=renewItem]"):
+        elif table.select_one(".button[title*=Zum], a[href*=renewItem]"):
             renewable = True
         else:
             renewable = None
@@ -118,6 +134,7 @@ def _parse_loans(soup, today: date) -> list[Loan]:
                 renewable=renewable,
                 barcode=fields.get("Mediennummer"),
                 branch=fields.get("ausgeliehen in"),
+                details={k: v for k, v in fields.items() if k != "Titel"},
             )
         )
     return loans
