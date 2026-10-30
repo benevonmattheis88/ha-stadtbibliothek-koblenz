@@ -171,7 +171,7 @@ def _parse_reservations(soup) -> list[dict]:
         out.append(
             {
                 "title": title,
-                "author": fields.get("Verfasser"),
+                "author": fields.get("Verfasser") or fields.get("Autor"),
                 "ready": bool(re.search(r"abhol|liegt bereit|bereitgestellt|eingetroffen", text, re.I)),
                 "details": {k: v for k, v in fields.items() if k and k != "Titel"},
             }
@@ -221,7 +221,7 @@ def _parse_loans(soup, today: date) -> list[tuple[Loan, str | None]]:
         loans.append(
             Loan(
                 title=title,
-                author=fields.get("Verfasser"),
+                author=fields.get("Verfasser") or fields.get("Autor"),
                 due_date=due.isoformat() if due else None,
                 days_left=(due - today).days if due else None,
                 renewable=renewable,

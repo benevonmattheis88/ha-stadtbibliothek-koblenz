@@ -67,8 +67,9 @@ actions:
 | Gebühren (0 €), Ausweis gültig bis | ✅ 30.10.2026 |
 | Verlängern (Knopf / Dienst) | ⏳ noch offen |
 | Automatisch verlängern | ⏳ noch offen |
-| Vormerkungen, „abholbereit“ | ⏳ noch offen |
-| Gebühren > 0 € | ⏳ noch offen |
+| Vormerkungen lesen | ✅ 30.10.2026 |
+| Vormerkung „abholbereit“ | ⏳ noch offen |
+| Gebühren > 0 € | ✅ 30.10.2026 |
 
 ## Fehler melden
 
