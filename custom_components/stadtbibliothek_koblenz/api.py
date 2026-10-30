@@ -24,6 +24,8 @@ DUE_LABEL = re.compile(r"f.lligkeit|f.llig|leihfrist|frist|r.ckgabe", re.I)
 NOT_DUE_LABEL = re.compile(r"ausgeliehen|entliehen|ausleih|seit|vorgemerkt", re.I)
 DATE_RE = re.compile(r"(\d{1,2})[./-](\d{1,2})[./-](\d{4}|\d{2})\b")
 MAX_PAGES = 10
+RENEW_RE = re.compile(r"renewItem\('[0-9]+',\s*'(.*?)'\)")
+CANNOT_RENEW_RE = re.compile(r"CannotRenewLoan\('[0-9]+',\s*'(.*?)'")
 
 
 class LibraryError(Exception):
@@ -44,7 +46,7 @@ class Loan:
     barcode: str | None
     branch: str | None
     details: dict[str, str]
-    links: list[dict[str, str]]
+    renew_note: str | None
 
 
 def _parse_date(text: str) -> date | None:
@@ -91,8 +93,10 @@ def _find_lent_link(soup) -> str | None:
     return None
 
 
-def _parse_loans(soup, today: date) -> list[Loan]:
+def _parse_loans(soup, today: date) -> list[tuple[Loan, str | None]]:
+    """Medien der Seite, jeweils mit dem Pfad zum Verlängern (falls möglich)."""
     loans: list[Loan] = []
+    renew_paths: list[str | None] = []
     for table in soup.select(
         ".LoansBrowseItemDetailsCellStripe table, .LoansBrowseItemDetailsCell table"
     ):
@@ -119,13 +123,16 @@ def _parse_loans(soup, today: date) -> list[Loan]:
             found = [_parse_date(m.group(0)) for m in DATE_RE.finditer(_text(table))]
             found = [d for d in found if d]
             due = max(found) if found else None
-        # Wie in Zones.java: Verlängern-Knöpfe stehen in der Tabelle des Mediums.
-        # Koblenz zeigt auch bei verlängerbaren Medien den Link "Verlängern ?" als
-        # CannotRenewLink, daher wird daraus kein "nicht verlängerbar" abgeleitet.
-        if table.select_one(".button[title*=Zum], a[href*=renewItem]"):
-            renewable: bool | None = True
-        else:
-            renewable = None
+        # Wie in Zones.java: renewItem(..) = verlängerbar, CannotRenewLoan(..'Grund'..) = gerade nicht
+        renew_path = None
+        renew_note = None
+        renewable: bool | None = None
+        for x in table.find_all("a", href=True):
+            if m := RENEW_RE.search(x["href"]):
+                renew_path, renewable = m.group(1), True
+                break
+            if m := CANNOT_RENEW_RE.search(x["href"]):
+                renewable, renew_note = False, m.group(1).strip()
         loans.append(
             Loan(
                 title=title,
@@ -136,21 +143,11 @@ def _parse_loans(soup, today: date) -> list[Loan]:
                 barcode=fields.get("Mediennummer"),
                 branch=fields.get("ausgeliehen in"),
                 details={k: v for k, v in fields.items() if k and k != "Titel"},
-                # vorübergehend zur Analyse des Verlängern-Links
-                links=[
-                    {
-                        "class": " ".join(x.get("class") or []),
-                        "title": x.get("title") or "",
-                        "text": _text(x)[:60],
-                        "href": (x.get("href") or "")[:400],
-                        "where": "table" if table in x.parents else "parent",
-                    }
-                    for x in ((table.parent or table).find_all("a"))
-                    if "BACNO" not in (x.get("href") or "")
-                ],
+                renew_note=renew_note,
             )
         )
-    return loans
+        renew_paths.append(renew_path)
+    return list(zip(loans, renew_paths))
 
 
 def _next_page(soup) -> str | None:
@@ -194,7 +191,8 @@ class ZonesClient:
         found += [self._base, urljoin(self._base, "alswww2.dll/")]
         return list(dict.fromkeys(found))
 
-    async def _fetch(self, session) -> list[dict]:
+    async def _login(self, session):
+        """Einloggen, liefert die Kontoseite (soup) und ihre Adresse."""
         loop = asyncio.get_running_loop()
         soup = form = None
         page_url = self._base
@@ -225,7 +223,11 @@ class ZonesClient:
             if "Kontostand" not in html:
                 raise LoginFailed("Anmeldung fehlgeschlagen")
             soup = await loop.run_in_executor(None, BeautifulSoup, html, "html.parser")
+        return soup, page_url
 
+    async def _loan_items(self, session) -> list[tuple[Loan, str | None]]:
+        loop = asyncio.get_running_loop()
+        soup, page_url = await self._login(session)
         link = _find_lent_link(soup)
         if link is None:
             # Konto ohne Ausleihen zeigt keinen Link
@@ -233,15 +235,49 @@ class ZonesClient:
         url = urljoin(page_url, link.replace("utf-8?Method", "utf-8&Method"))
 
         today = datetime.now().date()
-        loans: list[Loan] = []
+        items: list[tuple[Loan, str | None]] = []
         for _ in range(MAX_PAGES):
             html, page_url = await self._get(session, url)
             soup = await loop.run_in_executor(None, BeautifulSoup, html, "html.parser")
-            loans.extend(_parse_loans(soup, today))
+            items.extend(
+                (loan, urljoin(page_url, path) if path else None)
+                for loan, path in _parse_loans(soup, today)
+            )
             nxt = _next_page(soup)
             if not nxt:
                 break
             url = urljoin(page_url, nxt)
+        return items
 
+    async def _fetch(self, session) -> list[dict]:
+        loans = [loan for loan, _ in await self._loan_items(session)]
         loans.sort(key=lambda l: l.due_date or "9999-12-31")
         return [asdict(l) for l in loans]
+
+    async def renew(self, barcodes: list[str] | None = None) -> list[dict]:
+        """Verlängert die genannten Medien (Mediennummer), ohne Angabe alle verlängerbaren."""
+        wanted = {b.replace(" ", "") for b in barcodes} if barcodes else None
+        results: list[dict] = []
+        try:
+            async with aiohttp.ClientSession(
+                cookie_jar=aiohttp.CookieJar(), timeout=TIMEOUT, headers=HEADERS
+            ) as session:
+                for loan, url in await self._loan_items(session):
+                    if wanted is not None and (loan.barcode or "").replace(" ", "") not in wanted:
+                        continue
+                    result = {"title": loan.title, "barcode": loan.barcode}
+                    if url is None:
+                        if wanted is None:
+                            continue  # "alle" heißt: alle, die gerade verlängerbar sind
+                        results.append({**result, "success": False,
+                                        "message": loan.renew_note or "nicht verlängerbar"})
+                        continue
+                    html, _ = await self._get(session, url)
+                    soup = BeautifulSoup(html, "html.parser")
+                    box = soup.select_one("#SSRenewDlgContent")
+                    text = _text(box) if box else _text(soup)[:300]
+                    results.append({**result, "success": "erfolgreich" in text.lower(),
+                                    "message": text[:300]})
+        except (aiohttp.ClientError, asyncio.TimeoutError) as err:
+            raise LibraryError(f"Katalog nicht erreichbar: {err}") from err
+        return results

@@ -35,12 +35,27 @@
       "naechste_rueckgabe": {
         "name": "Next due date"
       }
+    },
+    "button": {
+      "alle_verlaengern": {
+        "name": "Renew all"
+      }
     }
   },
   "services": {
     "aktualisieren": {
       "name": "Refresh",
       "description": "Fetch the account now."
+    },
+    "verlaengern": {
+      "name": "Renew",
+      "description": "Renew loans. Without item number all currently renewable loans are renewed.",
+      "fields": {
+        "mediennummer": {
+          "name": "Item number",
+          "description": "One or more item numbers"
+        }
+      }
     }
   }
 }

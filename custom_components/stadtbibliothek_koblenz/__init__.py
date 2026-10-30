@@ -5,15 +5,18 @@ import logging
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.exceptions import ConfigEntryAuthFailed
+import voluptuous as vol
+
+from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
+from homeassistant.helpers import config_validation as cv
+from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import LibraryError, LoginFailed, ZonesClient
 from .const import CONF_BASE_URL, CONF_CARD, CONF_PIN, DEFAULT_BASE_URL, DOMAIN, UPDATE_INTERVAL
 
 _LOGGER = logging.getLogger(__name__)
-PLATFORMS = [Platform.SENSOR]
+PLATFORMS = [Platform.SENSOR, Platform.BUTTON]
 
 
 class LoansCoordinator(DataUpdateCoordinator[list[dict]]):
@@ -24,6 +27,18 @@ class LoansCoordinator(DataUpdateCoordinator[list[dict]]):
             entry.data[CONF_CARD],
             entry.data[CONF_PIN],
         )
+
+    async def async_renew(self, barcodes: list[str] | None = None) -> list[dict]:
+        """Verlängern, danach Konto neu lesen und Ergebnis melden."""
+        try:
+            results = await self.client.renew(barcodes)
+        except LoginFailed as err:
+            raise ConfigEntryAuthFailed(str(err)) from err
+        except LibraryError as err:
+            raise HomeAssistantError(str(err)) from err
+        await self.async_request_refresh()
+        self.hass.bus.async_fire(f"{DOMAIN}_verlaengert", {"results": results})
+        return results
 
     async def _async_update_data(self) -> list[dict]:
         try:
@@ -46,6 +61,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 await coord.async_request_refresh()
 
         hass.services.async_register(DOMAIN, "aktualisieren", _refresh)
+
+        async def _renew(call: ServiceCall) -> ServiceResponse:
+            nummern = call.data.get("mediennummer") or None
+            results: list[dict] = []
+            for coord in hass.data.get(DOMAIN, {}).values():
+                results += await coord.async_renew(nummern)
+            return {"renewed": sum(1 for r in results if r["success"]), "results": results}
+
+        hass.services.async_register(
+            DOMAIN,
+            "verlaengern",
+            _renew,
+            schema=vol.Schema({vol.Optional("mediennummer"): vol.All(cv.ensure_list, [cv.string])}),
+            supports_response=SupportsResponse.OPTIONAL,
+        )
     return True
 
 

@@ -1,1 +1,8 @@
 aktualisieren:
+verlaengern:
+  fields:
+    mediennummer:
+      example: "M86 620 715 8"
+      selector:
+        text:
+          multiple: true

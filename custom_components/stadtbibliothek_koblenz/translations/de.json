@@ -35,12 +35,27 @@
       "naechste_rueckgabe": {
         "name": "Nächste Rückgabe"
       }
+    },
+    "button": {
+      "alle_verlaengern": {
+        "name": "Alle verlängern"
+      }
     }
   },
   "services": {
     "aktualisieren": {
       "name": "Aktualisieren",
       "description": "Konto sofort neu abrufen."
+    },
+    "verlaengern": {
+      "name": "Verlängern",
+      "description": "Medien verlängern. Ohne Mediennummer werden alle verlängert, die gerade verlängerbar sind.",
+      "fields": {
+        "mediennummer": {
+          "name": "Mediennummer",
+          "description": "Eine oder mehrere Mediennummern"
+        }
+      }
     }
   }
 }
