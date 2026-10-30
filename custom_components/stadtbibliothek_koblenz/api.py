@@ -44,6 +44,7 @@ class Loan:
     barcode: str | None
     branch: str | None
     details: dict[str, str]
+    links: list[dict[str, str]]
 
 
 def _parse_date(text: str) -> date | None:
@@ -135,6 +136,18 @@ def _parse_loans(soup, today: date) -> list[Loan]:
                 barcode=fields.get("Mediennummer"),
                 branch=fields.get("ausgeliehen in"),
                 details={k: v for k, v in fields.items() if k and k != "Titel"},
+                # vorübergehend zur Analyse des Verlängern-Links
+                links=[
+                    {
+                        "class": " ".join(x.get("class") or []),
+                        "title": x.get("title") or "",
+                        "text": _text(x)[:60],
+                        "href": (x.get("href") or "")[:400],
+                        "where": "table" if table in x.parents else "parent",
+                    }
+                    for x in ((table.parent or table).find_all("a"))
+                    if "BACNO" not in (x.get("href") or "")
+                ],
             )
         )
     return loans
