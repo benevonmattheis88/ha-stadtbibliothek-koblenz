@@ -25,5 +25,9 @@ async def async_get_config_entry_diagnostics(
     return {
         "entry": async_redact_data(entry.as_dict(), TO_REDACT),
         "auto_renew": coordinator.auto_renew,
+        "history": {
+            "active": len(coordinator.history.get("active", {})),
+            "returned": len(coordinator.history.get("returned", [])),
+        },
         "data": data,
     }

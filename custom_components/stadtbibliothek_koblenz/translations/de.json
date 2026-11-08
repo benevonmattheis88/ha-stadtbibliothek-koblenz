@@ -43,6 +43,9 @@
       },
       "ausweis_gueltig_bis": {
         "name": "Ausweis gültig bis"
+      },
+      "historie": {
+        "name": "Historie"
       }
     },
     "button": {
@@ -70,6 +73,10 @@
           "description": "Eine oder mehrere Mediennummern"
         }
       }
+    },
+    "historie": {
+      "name": "Historie",
+      "description": "Gibt alle aufgezeichneten Ausleihen zurück (zurückgegebene und aktuelle)."
     }
   },
   "options": {

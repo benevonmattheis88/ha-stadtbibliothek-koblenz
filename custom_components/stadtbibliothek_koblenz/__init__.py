@@ -16,6 +16,7 @@ PLATFORMS = [Platform.SENSOR, Platform.BUTTON, Platform.SWITCH]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = LoansCoordinator(hass, entry)
+    await coordinator.async_load_history()
     await coordinator.async_config_entry_first_refresh()
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -47,6 +48,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             _renew,
             schema=vol.Schema({vol.Optional("mediennummer"): vol.All(cv.ensure_list, [cv.string])}),
             supports_response=SupportsResponse.OPTIONAL,
+        )
+
+        async def _history(call: ServiceCall) -> ServiceResponse:
+            returned: list[dict] = []
+            active: list[dict] = []
+            for coord in hass.data.get(DOMAIN, {}).values():
+                returned += coord.history.get("returned", [])
+                active += list(coord.history.get("active", {}).values())
+            returned.sort(key=lambda r: r.get("returned") or "", reverse=True)
+            return {"zurueckgegeben": returned, "ausgeliehen": active}
+
+        hass.services.async_register(
+            DOMAIN, "historie", _history, supports_response=SupportsResponse.ONLY
         )
     return True
 

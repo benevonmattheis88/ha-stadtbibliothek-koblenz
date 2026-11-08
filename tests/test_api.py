@@ -100,6 +100,7 @@ def test_fetch_account():
     assert loans["Buch A"]["due_date"] == "2026-11-13"
     assert loans["Buch A"]["renewable"] is True
     assert loans["Buch A"]["author"] == "Autorin X"
+    assert loans["Buch A"]["loan_date"] == "2026-10-30"
     assert loans["Film B"]["renewable"] is False
     assert "heute schon verlängert" in loans["Film B"]["renew_note"]
     assert data["fees"] == 2.5

@@ -47,6 +47,8 @@ class Loan:
     branch: str | None
     details: dict[str, str]
     renew_note: str | None
+    loan_date: str | None = None  # ISO-Datum, wann ausgeliehen
+
 
 
 def _parse_date(text: str) -> date | None:
@@ -178,6 +180,13 @@ def _parse_reservations(soup) -> list[dict]:
         )
     return out
 
+def _loan_date(fields: dict[str, str]) -> str | None:
+    for k, v in fields.items():
+        if re.search(r"ausleih|entliehen am|ausgeliehen am", k, re.I) and (d := _parse_date(v)):
+            return d.isoformat()
+    return None
+
+
 def _parse_loans(soup, today: date) -> list[tuple[Loan, str | None]]:
     """Medien der Seite, jeweils mit dem Pfad zum Verlängern (falls möglich)."""
     loans: list[Loan] = []
@@ -229,6 +238,7 @@ def _parse_loans(soup, today: date) -> list[tuple[Loan, str | None]]:
                 branch=fields.get("ausgeliehen in"),
                 details={k: v for k, v in fields.items() if k and k != "Titel"},
                 renew_note=renew_note,
+                loan_date=_loan_date(fields),
             )
         )
         renew_paths.append(renew_path)

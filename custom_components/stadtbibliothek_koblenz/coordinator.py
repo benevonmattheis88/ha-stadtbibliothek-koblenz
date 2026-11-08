@@ -8,6 +8,7 @@ from homeassistant.components import persistent_notification
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import LibraryError, LoginFailed, ZonesClient
@@ -22,7 +23,9 @@ from .const import (
     DEFAULT_RENEW_DAYS,
     DOMAIN,
     EVENT_RENEWED,
+    EVENT_RETURNED,
 )
+from .history import expected_count, update_history
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -55,14 +58,29 @@ class LoansCoordinator(DataUpdateCoordinator[dict]):
         self.auto_renew = False  # setzt der Schalter
         self._auto_tried: dict[str, date] = {}  # pro Medium höchstens ein Versuch am Tag
         self._auto_running = False
+        self._store: Store[dict] = Store(hass, 1, f"{DOMAIN}.historie_{entry.entry_id}")
+        self.history: dict = {"active": {}, "returned": []}
+
+    async def async_load_history(self) -> None:
+        if stored := await self._store.async_load():
+            self.history = stored
 
     async def _async_update_data(self) -> dict:
         try:
-            return await self.client.fetch_loans()
+            data = await self.client.fetch_loans()
         except LoginFailed as err:
             raise ConfigEntryAuthFailed(str(err)) from err
         except LibraryError as err:
             raise UpdateFailed(str(err)) from err
+        before = repr(self.history)
+        returned = update_history(
+            self.history, data["loans"], date.today(), expected_count(data.get("summary"))
+        )
+        if repr(self.history) != before:
+            self._store.async_delay_save(lambda: self.history, 10)
+        for rec in returned:
+            self.hass.bus.async_fire(EVENT_RETURNED, dict(rec))
+        return data
 
     async def async_renew(
         self, barcodes: list[str] | None = None, automatic: bool = False

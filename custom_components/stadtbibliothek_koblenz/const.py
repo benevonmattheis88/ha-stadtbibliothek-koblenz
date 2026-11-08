@@ -15,5 +15,6 @@ DEFAULT_INTERVAL = 4
 CONF_RENEW_DAYS = "renew_days_before"  # automatisch verlängern, wenn höchstens so viele Tage übrig
 DEFAULT_RENEW_DAYS = 1
 EVENT_RENEWED = f"{DOMAIN}_verlaengert"
+EVENT_RETURNED = f"{DOMAIN}_zurueckgegeben"
 # Zeilen der Kontoübersicht, die persönliche Daten enthalten (nicht als Attribut zeigen)
 PRIVATE_ROWS = r"name|adresse|anschrift|telefon|handy|e-?mail|kontakt|geburt|pin|übernehmen|abbrechen"

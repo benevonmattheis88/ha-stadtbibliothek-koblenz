@@ -26,7 +26,12 @@ Ausweisnummer und PIN werden nur in Home Assistant gespeichert. Mehrere Ausweise
 | Sensor *Vormerkungen* | Anzahl; Attribute `reservations`, `ready_count`, `ready_titles` |
 | Sensor *Ausweis gültig bis* | Datum; Attribut `days_left` |
 | Knopf *Alle verlängern* | verlängert alle Medien, die gerade verlängerbar sind |
+| Sensor *Historie* | Anzahl zurückgegebener Medien seit Beginn der Aufzeichnung; Attribute `zuletzt` (die letzten 20), `dieses_jahr`, `aufgezeichnet_seit` |
 | Schalter *Automatisch verlängern* | verlängert nach jedem Abruf alle verlängerbaren Medien, die in höchstens X Tagen zurück müssen (Standard: aus) |
+
+## Historie
+
+Der Katalog zeigt keine früheren Ausleihen. Die Integration merkt sich deshalb selbst jedes Medium, das sie im Konto sieht, und trägt es als zurückgegeben ein, sobald es nicht mehr in der Liste steht (mit Ausleihdatum, Rückgabetag und Zahl der Verlängerungen). Die Aufzeichnung beginnt mit der Installation; ältere Ausleihen lassen sich nicht nachholen. Der Rückgabetag ist der Tag, an dem die Integration das Fehlen bemerkt. Die Daten liegen nur in Home Assistant (`.storage`) und sind in Backups enthalten.
 
 ## Optionen
 
@@ -39,6 +44,8 @@ Unter *Konfigurieren* bei der Integration:
 
 - `stadtbibliothek_koblenz.aktualisieren`: Konto sofort lesen.
 - `stadtbibliothek_koblenz.verlaengern`: verlängern, optional nur bestimmte `mediennummer`. Gibt `renewed` und `results` zurück.
+- `stadtbibliothek_koblenz.historie`: gibt alle aufgezeichneten Ausleihen zurück (`zurueckgegeben`, `ausgeliehen`).
+- Event `stadtbibliothek_koblenz_zurueckgegeben`, sobald ein Medium nicht mehr ausgeliehen ist.
 - Event `stadtbibliothek_koblenz_verlaengert` nach jedem Verlängern, mit `results` und `automatisch` (true beim automatischen Verlängern).
 
 Beispiel: Push aufs Handy nach dem automatischen Verlängern
@@ -70,6 +77,7 @@ actions:
 | Vormerkungen lesen | ✅ 30.10.2026 |
 | Vormerkung „abholbereit“ | ⏳ noch offen |
 | Gebühren > 0 € | ✅ 30.10.2026 |
+| Historie (Rückgabe erkannt) | ⏳ noch offen |
 
 ## Fehler melden
 

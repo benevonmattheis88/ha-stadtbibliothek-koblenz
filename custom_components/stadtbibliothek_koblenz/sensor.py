@@ -24,6 +24,7 @@ async def async_setup_entry(
             FeesSensor(coordinator, entry),
             ReservationsSensor(coordinator, entry),
             CardValidSensor(coordinator, entry),
+            HistorySensor(coordinator, entry),
         ]
     )
 
@@ -138,3 +139,36 @@ class CardValidSensor(_Base, SensorEntity):
     def extra_state_attributes(self) -> dict:
         v = self.native_value
         return {"days_left": (v - date.today()).days if v else None}
+
+
+class HistorySensor(_Base, SensorEntity):
+    """Wie viele Medien seit Beginn der Aufzeichnung zurückgegeben wurden, die letzten als Liste."""
+
+    _attr_icon = "mdi:book-open-page-variant"
+    _attr_native_unit_of_measurement = "Medien"
+    # Die Liste wächst; nicht bei jedem Abruf in die Datenbank schreiben
+    _unrecorded_attributes = frozenset({"zuletzt"})
+
+    def __init__(self, coordinator, entry):
+        super().__init__(coordinator, entry, "historie")
+
+    @property
+    def native_value(self) -> int:
+        return len(self.coordinator.history.get("returned", []))
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        returned = self.coordinator.history.get("returned", [])
+        year = str(date.today().year)
+        return {
+            "zuletzt": [
+                {k: r.get(k) for k in ("title", "author", "format", "loan_date", "returned", "renewals")}
+                for r in returned[:20]
+            ],
+            "dieses_jahr": sum(1 for r in returned if (r.get("returned") or "").startswith(year)),
+            "aufgezeichnet_seit": min(
+                [r.get("loan_date") for r in returned if r.get("loan_date")]
+                + [r.get("loan_date") for r in self.coordinator.history.get("active", {}).values() if r.get("loan_date")],
+                default=None,
+            ),
+        }

@@ -43,6 +43,9 @@
       },
       "ausweis_gueltig_bis": {
         "name": "Card valid until"
+      },
+      "historie": {
+        "name": "History"
       }
     },
     "button": {
@@ -70,6 +73,10 @@
           "description": "One or more item numbers"
         }
       }
+    },
+    "historie": {
+      "name": "History",
+      "description": "Returns all recorded loans (returned and current)."
     }
   },
   "options": {
