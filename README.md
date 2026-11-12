@@ -27,7 +27,7 @@ Ausweisnummer und PIN werden nur in Home Assistant gespeichert. Mehrere Ausweise
 | Sensor *Ausweis gültig bis* | Datum; Attribut `days_left` |
 | Knopf *Alle verlängern* | verlängert alle Medien, die gerade verlängerbar sind |
 | Sensor *Historie* | Anzahl zurückgegebener Medien seit Beginn der Aufzeichnung; Attribute `zuletzt` (die letzten 20), `dieses_jahr`, `aufgezeichnet_seit` |
-| Schalter *Automatisch verlängern* | verlängert nach jedem Abruf alle verlängerbaren Medien, die in höchstens X Tagen zurück müssen (Standard: aus). Pro Rückgabedatum gibt es nur einen Versuch, auch über Neustarts hinweg. |
+| Schalter *Automatisch verlängern* | verlängert nach jedem Abruf alle verlängerbaren Medien, die in höchstens X Tagen zurück müssen (Standard: aus). Nach einem Erfolg erst wieder beim neuen Rückgabedatum, nach einer Absage am nächsten Tag erneut, auch über Neustarts hinweg. |
 
 ## Historie
 

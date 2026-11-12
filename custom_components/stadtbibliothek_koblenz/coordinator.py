@@ -57,6 +57,7 @@ class LoansCoordinator(DataUpdateCoordinator[dict]):
         )
         self.renew_days: int = entry.options.get(CONF_RENEW_DAYS, DEFAULT_RENEW_DAYS)
         self.auto_renew = False  # setzt der Schalter
+        self._login_failures = 0  # erst beim zweiten Fehlschlag in Folge neu anmelden lassen
         self._renew_lock = asyncio.Lock()  # nie zwei Verlängerungen gleichzeitig
         self._store: Store[dict] = Store(hass, 1, f"{DOMAIN}.historie_{entry.entry_id}")
         self.history: dict = {"active": {}, "returned": []}
@@ -69,9 +70,15 @@ class LoansCoordinator(DataUpdateCoordinator[dict]):
         try:
             data = await self.client.fetch_loans()
         except LoginFailed as err:
-            raise ConfigEntryAuthFailed(str(err)) from err
+            # Eine Fehlerseite mit Anmeldeformular im Kopf sieht aus wie eine falsche PIN.
+            # Darum erst beim zweiten Mal in Folge die Neuanmeldung verlangen.
+            self._login_failures += 1
+            if self._login_failures >= 2:
+                raise ConfigEntryAuthFailed(str(err)) from None
+            raise UpdateFailed(f"{err}, nächster Versuch beim nächsten Abruf") from None
         except LibraryError as err:
-            raise UpdateFailed(str(err)) from err
+            raise UpdateFailed(str(err)) from None
+        self._login_failures = 0
         before = repr(self.history)
         returned = update_history(
             self.history, data["loans"], date.today(), expected_count(data.get("summary"))
@@ -135,12 +142,16 @@ class LoansCoordinator(DataUpdateCoordinator[dict]):
             if (date.fromisoformat(due) - today).days > self.renew_days:
                 continue
             last = self._auto_log.get(barcode) or {}
-            if last.get("rueckgabe") == due:
-                continue  # für dieses Rückgabedatum schon versucht
-            if last.get("ok") and last.get("am"):
+            if not last.get("ok"):
+                if last.get("am") == today.isoformat():
+                    continue  # nach einer Absage erst morgen wieder
+            elif last.get("rueckgabe") == due:
+                continue  # für dieses Rückgabedatum schon erfolgreich verlängert
+            elif last.get("am") and date.fromisoformat(due) > today:
                 # nach einem Erfolg frühestens wieder, wenn das Fenster neu erreicht ist
-                # (verhindert tägliches Verlängern bei sehr kurzer Leihfrist)
-                if (today - date.fromisoformat(last["am"])).days <= self.renew_days:
+                # (verhindert tägliches Verlängern bei sehr kurzer Leihfrist);
+                # am Fälligkeitstag selbst immer, damit nichts überfällig wird
+                if (today - date.fromisoformat(last["am"])).days < self.renew_days:
                     continue
             out.append(barcode)
         return out
