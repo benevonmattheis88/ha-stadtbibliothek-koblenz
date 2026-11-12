@@ -27,7 +27,7 @@ Ausweisnummer und PIN werden nur in Home Assistant gespeichert. Mehrere Ausweise
 | Sensor *Ausweis gültig bis* | Datum; Attribut `days_left` |
 | Knopf *Alle verlängern* | verlängert alle Medien, die gerade verlängerbar sind |
 | Sensor *Historie* | Anzahl zurückgegebener Medien seit Beginn der Aufzeichnung; Attribute `zuletzt` (die letzten 20), `dieses_jahr`, `aufgezeichnet_seit` |
-| Schalter *Automatisch verlängern* | verlängert nach jedem Abruf alle verlängerbaren Medien, die in höchstens X Tagen zurück müssen (Standard: aus) |
+| Schalter *Automatisch verlängern* | verlängert nach jedem Abruf alle verlängerbaren Medien, die in höchstens X Tagen zurück müssen (Standard: aus). Pro Rückgabedatum gibt es nur einen Versuch, auch über Neustarts hinweg. |
 
 ## Historie
 
@@ -43,7 +43,7 @@ Unter *Konfigurieren* bei der Integration:
 ## Dienste und Event
 
 - `stadtbibliothek_koblenz.aktualisieren`: Konto sofort lesen.
-- `stadtbibliothek_koblenz.verlaengern`: verlängern, optional nur bestimmte `mediennummer`. Gibt `renewed` und `results` zurück.
+- `stadtbibliothek_koblenz.verlaengern`: bestimmte `mediennummer` verlängern, oder mit `alle: true` alle gerade verlängerbaren (ohne Angabe passiert nichts). Ein Medium gilt nur als verlängert, wenn das Rückgabedatum danach wirklich später liegt. Gibt `renewed` und `results` zurück.
 - `stadtbibliothek_koblenz.historie`: gibt alle aufgezeichneten Ausleihen zurück (`zurueckgegeben`, `ausgeliehen`).
 - Event `stadtbibliothek_koblenz_zurueckgegeben`, sobald ein Medium nicht mehr ausgeliehen ist.
 - Event `stadtbibliothek_koblenz_verlaengert` nach jedem Verlängern, mit `results` und `automatisch` (true beim automatischen Verlängern).

@@ -6,5 +6,9 @@ verlaengern:
       selector:
         text:
           multiple: true
+    alle:
+      default: false
+      selector:
+        boolean:
 
 historie:

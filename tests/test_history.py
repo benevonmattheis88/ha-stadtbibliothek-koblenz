@@ -30,7 +30,7 @@ def test_renewal_is_counted():
     h = {}
     history.update_history(h, [A], date(2026, 11, 1))
     history.update_history(h, [{**A, "due_date": "2026-12-11"}], date(2026, 11, 12))
-    history.update_history(h, [], date(2026, 12, 10))
+    history.update_history(h, [], date(2026, 12, 10), expected=0)
     assert h["returned"][0]["renewals"] == 1
     assert h["returned"][0]["due_date"] == "2026-12-11"
 
@@ -45,7 +45,7 @@ def test_incomplete_list_does_not_mark_returned():
 def test_same_item_borrowed_again_is_new_entry():
     h = {}
     history.update_history(h, [A], date(2026, 11, 1))
-    history.update_history(h, [], date(2026, 11, 10))
+    history.update_history(h, [], date(2026, 11, 10), expected=0)
     history.update_history(h, [{**A, "loan_date": "2027-01-05"}], date(2027, 1, 5))
     assert len(h["returned"]) == 1 and len(h["active"]) == 1
 
@@ -53,3 +53,17 @@ def test_same_item_borrowed_again_is_new_entry():
 def test_expected_count():
     assert history.expected_count({"Ausleihen": "7"}) == 7
     assert history.expected_count({}) is None
+
+
+def test_expected_count_other_label():
+    assert history.expected_count({"Entliehene Medien": "2"}) == 2
+    assert history.expected_count({"Gebühren": "1,50"}) is None
+
+
+def test_empty_list_without_counter_needs_two_fetches():
+    hist = {}
+    history.update_history(hist, [{"barcode": "A", "title": "A", "due_date": "2026-11-20"}], date(2026, 11, 1))
+    assert history.update_history(hist, [], date(2026, 11, 2)) == []
+    assert "A|" in hist["active"]
+    gone = history.update_history(hist, [], date(2026, 11, 3))
+    assert [g["barcode"] for g in gone] == ["A"]

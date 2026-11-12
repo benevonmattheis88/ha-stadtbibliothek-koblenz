@@ -36,6 +36,26 @@ class LoginFailed(LibraryError):
     """Ausweisnummer oder PIN falsch."""
 
 
+class RenewInterrupted(LibraryError):
+    """Verlängern brach ab; results enthält, was bis dahin beantwortet wurde."""
+
+    def __init__(self, msg: str, results: list[dict]) -> None:
+        super().__init__(msg)
+        self.results = results
+
+
+# Rückmeldungen beim Verlängern, die trotz "erfolgreich" im Text ein Nein sind
+RENEW_FAIL_RE = re.compile(
+    r"nicht\s+(erfolgreich|m.glich|verl.ngert|verl.ngerbar)|fehl|abgelehnt|kann\s+nicht|unm.glich", re.I
+)
+
+
+def _net_error(err: Exception) -> str:
+    """Fehlertext ohne Adresse (Zones-Adressen können die Kontonummer enthalten)."""
+    status = getattr(err, "status", None)
+    return f"Katalog nicht erreichbar ({type(err).__name__}{f', HTTP {status}' if status else ''})"
+
+
 @dataclass
 class Loan:
     title: str
@@ -98,6 +118,16 @@ def _find_lent_link(soup) -> str | None:
 
 AMOUNT_RE = re.compile(r"(-?\d+[.,]\d{2})\s*(?:€|EUR)", re.I)
 VALID_RE = re.compile(r"(?:g.ltig|ablauf|l.uft ab|verfall)[^0-9]{0,40}(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})", re.I)
+
+
+def loan_count(summary: dict[str, str]) -> int | None:
+    """Zahl der Ausleihen laut Kontoübersicht (Zeile "Ausleihen" oder "Entliehene Medien")."""
+    for key, value in (summary or {}).items():
+        if re.fullmatch(r"ausleihen|entliehene medien|entliehen", key.strip(), re.I):
+            digits = "".join(c for c in value if c.isdigit())
+            if digits:
+                return int(digits)
+    return None
 
 
 def _summary(soup) -> dict[str, str]:
@@ -267,7 +297,7 @@ class ZonesClient:
             ) as session:
                 return await self._fetch(session)
         except (aiohttp.ClientError, asyncio.TimeoutError) as err:
-            raise LibraryError(f"Katalog nicht erreichbar: {err}") from err
+            raise LibraryError(_net_error(err)) from None
 
     async def _get(self, session, url: str) -> tuple[str, str]:
         async with session.get(url) as resp:
@@ -315,9 +345,13 @@ class ZonesClient:
                 resp.raise_for_status()
                 html = await resp.text(errors="replace")
                 page_url = str(resp.url)
-            if "Kontostand" not in html:
-                raise LoginFailed("Anmeldung fehlgeschlagen")
-            soup = await loop.run_in_executor(None, BeautifulSoup, html, "html.parser")
+            soup, again = await loop.run_in_executor(None, _find_login_form, html)
+            if not (_is_logged_in(soup) or "Kontostand" in html):
+                if again is not None:
+                    # Anmeldeformular kommt wieder: Ausweisnummer oder PIN falsch
+                    raise LoginFailed("Anmeldung fehlgeschlagen")
+                # Wartung, Fehlerseite o. Ä.: später nochmal versuchen
+                raise LibraryError("Kontoseite nach der Anmeldung nicht erkannt")
         return soup, page_url
 
     async def _loan_items(self, session) -> list[tuple[Loan, str | None]]:
@@ -326,7 +360,10 @@ class ZonesClient:
         self._account = (soup, page_url)
         link = _find_lent_link(soup)
         if link is None:
-            # Konto ohne Ausleihen zeigt keinen Link
+            # Konto ohne Ausleihen zeigt keinen Link. Meldet die Übersicht aber
+            # Ausleihen, ist die Seite anders aufgebaut als erwartet.
+            if (loan_count(_summary(soup)) or 0) > 0:
+                raise LibraryError("Link zu den Ausleihen nicht gefunden")
             return []
         url = urljoin(page_url, link.replace("utf-8?Method", "utf-8&Method"))
 
@@ -370,9 +407,16 @@ class ZonesClient:
         }
 
     async def renew(self, barcodes: list[str] | None = None) -> list[dict]:
-        """Verlängert die genannten Medien (Mediennummer), ohne Angabe alle verlängerbaren."""
-        wanted = {b.replace(" ", "") for b in barcodes} if barcodes else None
+        """Verlängert die genannten Medien (Mediennummer); None heißt alle verlängerbaren.
+
+        Ein Medium gilt nur als verlängert, wenn die Bibliothek das meldet und das
+        Rückgabedatum beim Neulesen wirklich später liegt.
+        """
+        wanted = {b.replace(" ", "") for b in barcodes} if barcodes is not None else None
+        if wanted is not None and not any(wanted):
+            raise LibraryError("Keine Mediennummer angegeben")
         results: list[dict] = []
+        old_due: dict[str, str | None] = {}
         try:
             async with aiohttp.ClientSession(
                 cookie_jar=aiohttp.CookieJar(), timeout=TIMEOUT, headers=HEADERS
@@ -391,8 +435,33 @@ class ZonesClient:
                     soup = BeautifulSoup(html, "html.parser")
                     box = soup.select_one("#SSRenewDlgContent")
                     text = _text(box) if box else _text(soup)[:300]
-                    results.append({**result, "success": "erfolgreich" in text.lower(),
-                                    "message": text[:300]})
+                    ok = "erfolgreich" in text.lower() and not RENEW_FAIL_RE.search(text)
+                    results.append({**result, "success": ok, "message": text[:300]})
+                    old_due[loan.barcode or loan.title] = loan.due_date
+                if any(r["success"] for r in results):
+                    await self._verify_renewals(session, results, old_due)
         except (aiohttp.ClientError, asyncio.TimeoutError) as err:
-            raise LibraryError(f"Katalog nicht erreichbar: {err}") from err
+            if results:
+                raise RenewInterrupted(_net_error(err), results) from None
+            raise LibraryError(_net_error(err)) from None
         return results
+
+    async def _verify_renewals(self, session, results: list[dict], old_due: dict) -> None:
+        """Konto neu lesen: "erfolgreich" zählt nur, wenn das Rückgabedatum später liegt."""
+        try:
+            now = {
+                (loan.barcode or loan.title): loan.due_date
+                for loan, _ in await self._loan_items(session)
+            }
+        except (LibraryError, aiohttp.ClientError, asyncio.TimeoutError):
+            return  # Prüfen nicht möglich, Rückmeldung der Bibliothek gilt
+        for r in results:
+            key = r["barcode"] or r["title"]
+            if not r["success"] or key not in now:
+                continue
+            before, after = old_due.get(key), now[key]
+            if before and after and after <= before:
+                r["success"] = False
+                r["message"] = f"Rückgabedatum unverändert ({r['message']})"[:300]
+            elif after:
+                r["due_date"] = after

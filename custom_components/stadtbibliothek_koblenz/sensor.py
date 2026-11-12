@@ -9,7 +9,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, PRIVATE_ROWS
+from .const import DOMAIN, PUBLIC_ROWS
 from .entity import _Base
 
 
@@ -97,7 +97,7 @@ class FeesSensor(_Base, SensorEntity):
         rows = self._data.get("summary") or {}
         return {
             "kontouebersicht": {
-                k: v for k, v in rows.items() if not re.search(PRIVATE_ROWS, k, re.I)
+                k: v for k, v in rows.items() if re.fullmatch(PUBLIC_ROWS, k.strip(), re.I)
             }
         }
 

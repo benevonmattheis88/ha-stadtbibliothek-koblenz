@@ -4,6 +4,7 @@ Bewusst ohne Home-Assistant-Importe, damit es sich allein testen lässt.
 """
 from __future__ import annotations
 
+import re
 from datetime import date
 
 
@@ -45,6 +46,13 @@ def update_history(
             rec["renewals"] = rec.get("renewals", 0) + 1
         if due:
             rec["due_date"] = due
+    if expected is None and not loans and active:
+        # Zähler unbekannt und Liste leer: erst beim zweiten leeren Abruf in Folge
+        # glauben, dass wirklich alles zurückgegeben ist
+        if not hist.get("leer_gesehen"):
+            hist["leer_gesehen"] = True
+            return []
+    hist.pop("leer_gesehen", None)
     if expected is not None and expected != len(loans):
         return []
     gone = [key for key in active if key not in seen]
@@ -58,7 +66,10 @@ def update_history(
 
 
 def expected_count(summary: dict[str, str]) -> int | None:
-    """Zahl der Ausleihen aus der Kontoübersicht ("Ausleihen": "7")."""
-    value = (summary or {}).get("Ausleihen", "")
-    digits = "".join(c for c in value if c.isdigit())
-    return int(digits) if digits else None
+    """Zahl der Ausleihen aus der Kontoübersicht ("Ausleihen": "7" oder "Entliehene Medien": "7")."""
+    for key, value in (summary or {}).items():
+        if re.fullmatch(r"ausleihen|entliehene medien|entliehen", key.strip(), re.I):
+            digits = "".join(c for c in value if c.isdigit())
+            if digits:
+                return int(digits)
+    return None

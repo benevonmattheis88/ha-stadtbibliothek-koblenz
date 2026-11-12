@@ -1,4 +1,4 @@
-"""Diagnose-Daten: Ausweisnummer, PIN und persönliche Kontozeilen geschwärzt."""
+"""Diagnose-Daten: Ausweisnummer, PIN und alle nicht ausdrücklich erlaubten Kontozeilen geschwärzt."""
 from __future__ import annotations
 
 import re
@@ -8,7 +8,7 @@ from homeassistant.components.diagnostics import REDACTED, async_redact_data
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .const import CONF_CARD, CONF_PIN, DOMAIN, PRIVATE_ROWS
+from .const import CONF_CARD, CONF_PIN, DOMAIN, PUBLIC_ROWS
 
 TO_REDACT = {CONF_CARD, CONF_PIN, "unique_id", "title"}
 
@@ -19,7 +19,7 @@ async def async_get_config_entry_diagnostics(
     coordinator = hass.data[DOMAIN][entry.entry_id]
     data = dict(coordinator.data or {})
     data["summary"] = {
-        k: REDACTED if re.search(PRIVATE_ROWS, k, re.I) else v
+        k: v if re.fullmatch(PUBLIC_ROWS, k.strip(), re.I) else REDACTED
         for k, v in (data.get("summary") or {}).items()
     }
     return {

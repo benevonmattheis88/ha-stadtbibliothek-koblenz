@@ -46,6 +46,15 @@ def _html(text):
     return web.Response(text=text, content_type="text/html")
 
 
+STATE = {"renewed": False, "renew_reply": "Verlängerung erfolgreich", "login": "ok"}
+
+
+def _account():
+    if STATE["renewed"]:
+        return ACCOUNT.replace("13.11.2026 <a", "27.11.2026 <a")
+    return ACCOUNT
+
+
 async def _server():
     async def root(request):
         return _html('<a href="alswww2.dll/APS_ZONES?fn=Search">Suche</a>')
@@ -53,7 +62,10 @@ async def _server():
     async def zones(request):
         if request.query.get("fn") == "Renew":
             assert request.query.get("X") == "1"
-            return _html('<div id="SSRenewDlgContent">Verlängerung erfolgreich</div>')
+            if "nicht" not in STATE["renew_reply"] and STATE["renew_reply"] != "stumm":
+                STATE["renewed"] = True
+            reply = "Verlängerung erfolgreich" if STATE["renew_reply"] == "stumm" else STATE["renew_reply"]
+            return _html(f'<div id="SSRenewDlgContent">{reply}</div>')
         return _html(
             '<form id="LoginForm" action="APS_ZONES?fn=Login">'
             '<input name="BRWR"><input name="PIN"></form>'
@@ -61,14 +73,16 @@ async def _server():
 
     async def login(request):
         form = await request.post()
+        if STATE["login"] == "wartung":
+            return _html("<h1>Wartungsarbeiten</h1>")
         if form.get("PIN") != "1234":
             return _html('<form id="LoginForm"><input name="BRWR"></form>')
-        return _html("Kontostand " + ACCOUNT)
+        return _html("Kontostand " + _account())
 
     async def present(request):
         if request.query.get("Method") == "ShowReservations":
             return _html(RESERVATIONS)
-        return _html(ACCOUNT)
+        return _html(_account())
 
     app = web.Application()
     app.router.add_get("/Zones2/", root)
@@ -83,7 +97,9 @@ async def _server():
     return runner, f"http://127.0.0.1:{port}/Zones2/"
 
 
-def _run(coro_fn, pin="1234"):
+def _run(coro_fn, pin="1234", **state):
+    STATE.update({"renewed": False, "renew_reply": "Verlängerung erfolgreich", "login": "ok", **state})
+
     async def main():
         runner, url = await _server()
         try:
@@ -113,6 +129,42 @@ def test_fetch_account():
 def test_renew_all_skips_not_renewable():
     results = _run(lambda c: c.renew())
     assert [(r["title"], r["success"]) for r in results] == [("Buch A", True)]
+    assert results[0]["due_date"] == "2026-11-27"
+
+
+def test_renew_refusal_with_word_erfolgreich_is_failure():
+    results = _run(lambda c: c.renew(), renew_reply="Verlängerung nicht erfolgreich")
+    assert results[0]["success"] is False
+
+
+def test_renew_without_new_due_date_is_failure():
+    results = _run(lambda c: c.renew(), renew_reply="stumm")
+    assert results[0]["success"] is False
+    assert "unverändert" in results[0]["message"]
+
+
+def test_renew_empty_list_is_rejected():
+    try:
+        _run(lambda c: c.renew([]))
+    except api.LibraryError:
+        return
+    raise AssertionError("LibraryError erwartet")
+
+
+def test_maintenance_page_is_not_wrong_pin():
+    try:
+        _run(lambda c: c.fetch_loans(), login="wartung")
+    except api.LoginFailed:
+        raise AssertionError("Wartung darf nicht als falsche PIN gelten")
+    except api.LibraryError:
+        return
+    raise AssertionError("LibraryError erwartet")
+
+
+def test_loan_count():
+    assert api.loan_count({"Ausleihen": "7"}) == 7
+    assert api.loan_count({"Entliehene Medien": "3"}) == 3
+    assert api.loan_count({"Gebühren": "€ 2,50"}) is None
 
 
 def test_renew_named_item_reports_reason():

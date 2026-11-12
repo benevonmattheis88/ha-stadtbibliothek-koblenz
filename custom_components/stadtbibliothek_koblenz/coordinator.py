@@ -1,6 +1,7 @@
 """Abruf des Leserkontos, Verlängern und automatisches Verlängern."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import date, timedelta
 
@@ -11,7 +12,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .api import LibraryError, LoginFailed, ZonesClient
+from .api import LibraryError, LoginFailed, RenewInterrupted, ZonesClient
 from .const import (
     CONF_BASE_URL,
     CONF_CARD,
@@ -56,8 +57,7 @@ class LoansCoordinator(DataUpdateCoordinator[dict]):
         )
         self.renew_days: int = entry.options.get(CONF_RENEW_DAYS, DEFAULT_RENEW_DAYS)
         self.auto_renew = False  # setzt der Schalter
-        self._auto_tried: dict[str, date] = {}  # pro Medium höchstens ein Versuch am Tag
-        self._auto_running = False
+        self._renew_lock = asyncio.Lock()  # nie zwei Verlängerungen gleichzeitig
         self._store: Store[dict] = Store(hass, 1, f"{DOMAIN}.historie_{entry.entry_id}")
         self.history: dict = {"active": {}, "returned": []}
 
@@ -77,27 +77,55 @@ class LoansCoordinator(DataUpdateCoordinator[dict]):
             self.history, data["loans"], date.today(), expected_count(data.get("summary"))
         )
         if repr(self.history) != before:
-            self._store.async_delay_save(lambda: self.history, 10)
+            self._save()
         for rec in returned:
             self.hass.bus.async_fire(EVENT_RETURNED, dict(rec))
         return data
 
+    def _save(self) -> None:
+        self._store.async_delay_save(lambda: self.history, 10)
+
+    @property
+    def _auto_log(self) -> dict[str, dict]:
+        """Pro Mediennummer: für welches Rückgabedatum zuletzt automatisch versucht, und wann."""
+        return self.history.setdefault("auto_versucht", {})
+
     async def async_renew(
         self, barcodes: list[str] | None = None, automatic: bool = False
     ) -> list[dict]:
-        """Verlängern, danach Konto neu lesen und Ergebnis melden."""
+        """Verlängern, danach Konto neu lesen und Ergebnis melden (auch Teilergebnisse)."""
+        async with self._renew_lock:
+            return await self._renew(barcodes, automatic)
+
+    async def _renew(self, barcodes: list[str] | None, automatic: bool) -> list[dict]:
+        error: str | None = None
         try:
             results = await self.client.renew(barcodes)
         except LoginFailed as err:
-            raise ConfigEntryAuthFailed(str(err)) from err
+            raise ConfigEntryAuthFailed(str(err)) from None
+        except RenewInterrupted as err:
+            results, error = err.results, str(err)
         except LibraryError as err:
-            raise HomeAssistantError(str(err)) from err
+            raise HomeAssistantError(str(err)) from None
+        if automatic:
+            today = date.today().isoformat()
+            due = {l.get("barcode"): l.get("due_date") for l in (self.data or {}).get("loans") or []}
+            for r in results:  # nur Medien, für die die Bibliothek geantwortet hat
+                if r.get("barcode"):
+                    self._auto_log[r["barcode"]] = {
+                        "rueckgabe": due.get(r["barcode"]), "am": today, "ok": r["success"]
+                    }
+            self._save()
         await self.async_request_refresh()
         self.hass.bus.async_fire(EVENT_RENEWED, {"results": results, "automatisch": automatic})
+        if error:
+            if automatic:
+                notify_results(self.hass, results, "Bücherei: automatisch verlängert (abgebrochen)")
+            raise HomeAssistantError(f"Verlängern abgebrochen: {error}")
         return results
 
     def due_for_auto_renew(self, today: date | None = None) -> list[str]:
-        """Mediennummern, die bald fällig, verlängerbar und heute noch nicht versucht sind."""
+        """Mediennummern, die bald fällig, verlängerbar und für dieses Datum noch nicht versucht sind."""
         today = today or date.today()
         out = []
         for loan in (self.data or {}).get("loans") or []:
@@ -106,27 +134,27 @@ class LoansCoordinator(DataUpdateCoordinator[dict]):
                 continue
             if (date.fromisoformat(due) - today).days > self.renew_days:
                 continue
-            if self._auto_tried.get(barcode) == today:
-                continue
+            last = self._auto_log.get(barcode) or {}
+            if last.get("rueckgabe") == due:
+                continue  # für dieses Rückgabedatum schon versucht
+            if last.get("ok") and last.get("am"):
+                # nach einem Erfolg frühestens wieder, wenn das Fenster neu erreicht ist
+                # (verhindert tägliches Verlängern bei sehr kurzer Leihfrist)
+                if (today - date.fromisoformat(last["am"])).days <= self.renew_days:
+                    continue
             out.append(barcode)
         return out
 
     async def async_auto_renew(self) -> None:
         """Nach jedem Abruf: fällige Medien verlängern, wenn der Schalter an ist."""
-        if not self.auto_renew or self._auto_running:
+        if not self.auto_renew or self._renew_lock.locked():
             return
-        if not (wanted := self.due_for_auto_renew()):
-            return
-        self._auto_running = True
-        try:
-            today = date.today()
-            for barcode in wanted:
-                self._auto_tried[barcode] = today
+        async with self._renew_lock:
+            if not (wanted := self.due_for_auto_renew()):
+                return
             try:
-                results = await self.async_renew(wanted, automatic=True)
+                results = await self._renew(wanted, automatic=True)
             except HomeAssistantError as err:
                 _LOGGER.warning("Automatisches Verlängern fehlgeschlagen: %s", err)
                 return
             notify_results(self.hass, results, "Bücherei: automatisch verlängert")
-        finally:
-            self._auto_running = False

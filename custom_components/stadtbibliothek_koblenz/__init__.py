@@ -6,6 +6,7 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 
 from .const import DOMAIN
@@ -36,7 +37,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.services.async_register(DOMAIN, "aktualisieren", _refresh)
 
         async def _renew(call: ServiceCall) -> ServiceResponse:
-            nummern = call.data.get("mediennummer") or None
+            nummern = [n for n in call.data.get("mediennummer", []) if n.strip()]
+            if call.data.get("alle"):
+                if nummern:
+                    raise ServiceValidationError("Entweder mediennummer oder alle: true angeben, nicht beides")
+                nummern = None  # alle gerade verlängerbaren
+            elif not nummern:
+                raise ServiceValidationError(
+                    "Keine Mediennummer angegeben. Für alle Medien alle: true setzen."
+                )
             results: list[dict] = []
             for coord in hass.data.get(DOMAIN, {}).values():
                 results += await coord.async_renew(nummern)
@@ -46,7 +55,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             DOMAIN,
             "verlaengern",
             _renew,
-            schema=vol.Schema({vol.Optional("mediennummer"): vol.All(cv.ensure_list, [cv.string])}),
+            schema=vol.Schema(
+                {
+                    vol.Optional("mediennummer"): vol.All(cv.ensure_list, [cv.string]),
+                    vol.Optional("alle", default=False): cv.boolean,
+                }
+            ),
             supports_response=SupportsResponse.OPTIONAL,
         )
 

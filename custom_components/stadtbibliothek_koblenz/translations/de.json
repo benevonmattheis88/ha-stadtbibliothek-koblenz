@@ -66,11 +66,15 @@
     },
     "verlaengern": {
       "name": "Verlängern",
-      "description": "Medien verlängern. Ohne Mediennummer werden alle verlängert, die gerade verlängerbar sind.",
+      "description": "Medien verlängern: bestimmte Mediennummern oder mit alle: true alle gerade verlängerbaren.",
       "fields": {
         "mediennummer": {
           "name": "Mediennummer",
           "description": "Eine oder mehrere Mediennummern"
+        },
+        "alle": {
+          "name": "Alle",
+          "description": "Alle gerade verlängerbaren Medien verlängern"
         }
       }
     },

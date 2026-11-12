@@ -66,11 +66,15 @@
     },
     "verlaengern": {
       "name": "Renew",
-      "description": "Renew loans. Without item number all currently renewable loans are renewed.",
+      "description": "Renew loans: given item numbers, or all currently renewable loans with alle: true.",
       "fields": {
         "mediennummer": {
           "name": "Item number",
           "description": "One or more item numbers"
+        },
+        "alle": {
+          "name": "All",
+          "description": "Renew all currently renewable loans"
         }
       }
     },
