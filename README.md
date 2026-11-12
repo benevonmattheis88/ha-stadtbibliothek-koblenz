@@ -72,8 +72,8 @@ actions:
 | Anmelden, Ausleihen mit Rückgabedatum | ✅ 30.10.2026 |
 | „verlängerbar“ bzw. Grund, warum nicht | ✅ 30.10.2026 |
 | Gebühren (0 €), Ausweis gültig bis | ✅ 30.10.2026 |
-| Verlängern (Knopf / Dienst) | ⏳ noch offen |
-| Automatisch verlängern | ⏳ noch offen |
+| Verlängern (Dienst) | ✅ 12.11.2026 |
+| Automatisch verlängern (mit Push) | ✅ 12.11.2026 |
 | Vormerkungen lesen | ✅ 30.10.2026 |
 | Vormerkung „abholbereit“ | ⏳ noch offen |
 | Gebühren > 0 € | ✅ 30.10.2026 |
