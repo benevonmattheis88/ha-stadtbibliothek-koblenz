@@ -189,3 +189,13 @@ def test_parse_date():
 def test_card_valid_until_from_label():
     soup = BeautifulSoup("<p></p>", "html.parser")
     assert str(api._card_valid_until(soup, {"Ausweis gültig bis": "31.03.2027"})) == "2027-03-31"
+
+
+def test_fresh_loan_note():
+    html = api.BeautifulSoup(ACCOUNT.replace("<tr><td class=\"LoanBrowseFieldNameCell\">Mediennummer</td><td class=\"LoanBrowseFieldDataCell\">M86 2</td></tr>",
+        "<tr><td class=\"LoanBrowseFieldNameCell\">Mediennummer</td><td class=\"LoanBrowseFieldDataCell\">M86 2</td></tr><tr><td class=\"LoanBrowseFieldNameCell\">Ausleih- Datum</td><td class=\"LoanBrowseFieldDataCell\">06.11.2026</td></tr>"), "html.parser")
+    from datetime import date
+    loans = {l.title: l for l, _ in api._parse_loans(html, date(2026, 11, 6))}
+    assert loans["Film B"].renew_note == "heute ausgeliehen"
+    loans = {l.title: l for l, _ in api._parse_loans(html, date(2026, 11, 7))}
+    assert "heute schon verlängert" in loans["Film B"].renew_note

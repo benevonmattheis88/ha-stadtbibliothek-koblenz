@@ -257,6 +257,10 @@ def _parse_loans(soup, today: date) -> list[tuple[Loan, str | None]]:
                 break
             if m := CANNOT_RENEW_RE.search(x["href"]):
                 renewable, renew_note = False, m.group(1).strip()
+        loan_date = _loan_date(fields)
+        if loan_date == today.isoformat() and renew_note and "heute" in renew_note.lower():
+            # Der Katalog meldet bei frisch Ausgeliehenem "heute schon verlängert"
+            renew_note = "heute ausgeliehen"
         loans.append(
             Loan(
                 title=title,
@@ -268,7 +272,7 @@ def _parse_loans(soup, today: date) -> list[tuple[Loan, str | None]]:
                 branch=fields.get("ausgeliehen in"),
                 details={k: v for k, v in fields.items() if k and k != "Titel"},
                 renew_note=renew_note,
-                loan_date=_loan_date(fields),
+                loan_date=loan_date,
             )
         )
         renew_paths.append(renew_path)
