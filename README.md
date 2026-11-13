@@ -77,7 +77,7 @@ actions:
 | Vormerkungen lesen | ✅ 30.10.2026 |
 | Vormerkung „abholbereit“ | ⏳ noch offen |
 | Gebühren > 0 € | ✅ 30.10.2026 |
-| Historie (Rückgabe erkannt) | ⏳ noch offen |
+| Historie (Rückgabe erkannt) | ✅ 13.11.2026 |
 
 ## Fehler melden
 
